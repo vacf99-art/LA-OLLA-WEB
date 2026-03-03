@@ -62,10 +62,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid score' })
   }
 
+  const integerScore = Math.trunc(score)
   const member = `${name}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`
 
   try {
-    await redis.zadd(LEADERBOARD_KEY, { score, member })
+    await redis.zadd(LEADERBOARD_KEY, { score: integerScore, member })
 
     const size = await redis.zcard(LEADERBOARD_KEY)
     if (size > 200) {

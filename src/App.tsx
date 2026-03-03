@@ -23,9 +23,11 @@ const normalizeLeaderboard = (entries: unknown): LeaderboardEntry[] => {
         typeof entry?.name === 'string' && typeof entry?.score === 'number',
     )
     .map((entry) => ({
-      name: entry.name.slice(0, 12),
+      name: entry.name.trim().slice(0, 12),
       score: Math.max(0, Math.min(999999, Math.trunc(entry.score))),
     }))
+    .filter((entry) => entry.name.length > 0)
+    .filter((entry) => !(entry.name === 'PLAYER' && entry.score === 0))
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
 }
@@ -934,4 +936,3 @@ function App() {
 }
 
 export default App
-
