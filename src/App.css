@@ -246,3 +246,26 @@ a:hover {
     text-align: center;
   }
 }
+
+@media (max-width: 600px) {
+  .leaderboard {
+    top: 14px;
+    left: 14px;
+    min-width: 132px;
+    padding: 7px 9px;
+  }
+
+  .leaderboard h2 {
+    margin: 0 0 6px;
+    font-size: 14px;
+  }
+
+  .leaderboard ol {
+    gap: 4px;
+  }
+
+  .leaderboard li {
+    gap: 10px;
+    font-size: 11px;
+  }
+}
