@@ -9,36 +9,48 @@ type LeaderboardEntry = {
 
 type ActiveScreen = 'about' | 'projects' | 'contact' | null
 
-const LEADERBOARD_KEY = 'la-olla-runner-top3'
+const LEADERBOARD_ENDPOINT = '/api/leaderboard'
+const SUBMIT_SCORE_ENDPOINT = '/api/submit'
 
-const loadLeaderboard = (): LeaderboardEntry[] => {
-  if (typeof window === 'undefined') {
+const normalizeLeaderboard = (entries: unknown): LeaderboardEntry[] => {
+  if (!Array.isArray(entries)) {
     return []
   }
 
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(LEADERBOARD_KEY) ?? '[]')
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-
-    return parsed
-      .filter(
-        (entry): entry is LeaderboardEntry =>
-          typeof entry?.name === 'string' && typeof entry?.score === 'number',
-      )
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-  } catch {
-    return []
-  }
+  return entries
+    .filter(
+      (entry): entry is LeaderboardEntry =>
+        typeof entry?.name === 'string' && typeof entry?.score === 'number',
+    )
+    .map((entry) => ({
+      name: entry.name.slice(0, 12),
+      score: Math.max(0, Math.min(999999, Math.trunc(entry.score))),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
 }
 
-const saveLeaderboard = (entries: LeaderboardEntry[]) => {
-  if (typeof window === 'undefined') {
-    return
+const fetchLeaderboard = async () => {
+  const response = await fetch(LEADERBOARD_ENDPOINT)
+  if (!response.ok) {
+    throw new Error('Failed leaderboard fetch')
   }
-  window.localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(entries))
+  const payload = (await response.json()) as { entries?: unknown }
+  return normalizeLeaderboard(payload.entries)
+}
+
+const submitScore = async (name: string, score: number) => {
+  const response = await fetch(SUBMIT_SCORE_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, score }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed score submit')
+  }
 }
 
 class RunnerScene extends Phaser.Scene {
@@ -595,32 +607,68 @@ function App() {
   const [hasStarted, setHasStarted] = useState(false)
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>(null)
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(() => loadLeaderboard())
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
 
-  const updateLeaderboard = useCallback((finalScore: number) => {
+  const updateLeaderboard = useCallback(async (finalScore: number) => {
     if (finalScore <= 0) {
       return
     }
 
-    const current = loadLeaderboard()
+    let current: LeaderboardEntry[] = []
+    try {
+      current = await fetchLeaderboard()
+      setLeaderboard(current)
+    } catch {
+      setLeaderboard([])
+      return
+    }
+
     const qualifies =
       current.length < 3 ||
-      finalScore > current[current.length - 1].score ||
-      current.some((entry) => finalScore > entry.score)
+      finalScore > current[current.length - 1].score
 
     if (!qualifies) {
       return
     }
 
     const nameInput = window.prompt('Top 3! Enter your name:', 'PLAYER')
-    const cleanName = (nameInput?.trim() || 'PLAYER').slice(0, 12)
+    if (nameInput === null) {
+      return
+    }
 
-    const updated = [...current, { name: cleanName, score: finalScore }]
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
+    const cleanName = nameInput.trim().slice(0, 12)
+    if (!cleanName) {
+      return
+    }
 
-    saveLeaderboard(updated)
-    setLeaderboard(updated)
+    try {
+      await submitScore(cleanName, finalScore)
+      const refreshed = await fetchLeaderboard()
+      setLeaderboard(refreshed)
+    } catch {
+      setLeaderboard([])
+    }
+  }, [])
+
+  useEffect(() => {
+    let mounted = true
+
+    void (async () => {
+      try {
+        const entries = await fetchLeaderboard()
+        if (mounted) {
+          setLeaderboard(entries)
+        }
+      } catch {
+        if (mounted) {
+          setLeaderboard([])
+        }
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
   }, [])
 
   useEffect(() => {
@@ -651,7 +699,7 @@ function App() {
         setScore(finalScore)
         setGameOver(true)
         setMenuOpen(true)
-        updateLeaderboard(finalScore)
+        void updateLeaderboard(finalScore)
       },
     )
     sceneRef.current = scene
@@ -886,6 +934,4 @@ function App() {
 }
 
 export default App
-
-
 
