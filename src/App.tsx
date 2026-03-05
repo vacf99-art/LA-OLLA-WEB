@@ -170,8 +170,8 @@ class RunnerScene extends Phaser.Scene {
     }
 
     const dt = delta / 1000
-    this.speed += dt * 10
-    this.score += dt * (this.speed * 0.1)
+    this.speed += dt * 8
+    this.score += dt * (this.speed * 0.105)
     this.roadScroll += this.speed * dt
     this.onScore(Math.floor(this.score))
     this.drawScene()
