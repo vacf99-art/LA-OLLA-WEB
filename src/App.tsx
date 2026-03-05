@@ -8,9 +8,36 @@ type LeaderboardEntry = {
 }
 
 type ActiveScreen = 'about' | 'projects' | 'contact' | null
+type ObstacleOverlayState = {
+  id: number
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type RunnerObstacle = {
+  id: number
+  lane: number
+  x: number
+  y: number
+  width: number
+  height: number
+  active: boolean
+}
 
 const LEADERBOARD_ENDPOINT = '/api/leaderboard'
 const SUBMIT_SCORE_ENDPOINT = '/api/submit'
+const GAME_WIDTH = 320
+const GAME_HEIGHT = 568
+const PROJECT_ITEMS = [
+  { href: 'https://www.instagram.com/p/DSkDZ8sjEf7/', src: '/ig/1.mp4', type: 'video' as const },
+  { href: 'https://www.instagram.com/p/DR2H6MrjIvp/', src: '/ig/2.png', type: 'image' as const },
+  { href: 'https://www.instagram.com/p/DTuuWWYDFmv/', src: '/ig/3.mp4', type: 'video' as const },
+  { href: 'https://www.instagram.com/p/DRr2ijTDOjJ/', src: '/ig/4.mp4', type: 'video' as const },
+  { href: 'https://www.instagram.com/p/DSPQSRaDP5G/', src: '/ig/5.mp4', type: 'video' as const },
+  { href: 'https://www.instagram.com/p/DSCULJ6DP8O/', src: '/ig/6.mp4', type: 'video' as const },
+]
 
 const normalizeLeaderboard = (entries: unknown): LeaderboardEntry[] => {
   if (!Array.isArray(entries)) {
@@ -63,10 +90,12 @@ class RunnerScene extends Phaser.Scene {
   private roadTopWidth = 90
   private roadBottomWidth = 290
   private roadCenterX = 160
+  private obstacleAspectRatio = 1
 
   private player!: Phaser.GameObjects.Image
   private roadGraphics!: Phaser.GameObjects.Graphics
-  private obstacles!: Phaser.GameObjects.Group
+  private obstacles: RunnerObstacle[] = []
+  private nextObstacleId = 1
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys
   private cloudA!: Phaser.GameObjects.Image
   private cloudB!: Phaser.GameObjects.Image
@@ -82,20 +111,36 @@ class RunnerScene extends Phaser.Scene {
   private hasStarted = false
   private readonly onScore: (score: number) => void
   private readonly onCrash: (score: number) => void
+  private readonly onObstacles: (obstacles: ObstacleOverlayState[]) => void
 
-  constructor(onScore: (score: number) => void, onCrash: (score: number) => void) {
+  constructor(
+    onScore: (score: number) => void,
+    onCrash: (score: number) => void,
+    onObstacles: (obstacles: ObstacleOverlayState[]) => void,
+  ) {
     super('runner-scene')
     this.onScore = onScore
     this.onCrash = onCrash
+    this.onObstacles = onObstacles
+  }
+
+  preload() {
+    this.load.image('obstacle-png', '/obstacle.png')
   }
 
   create() {
     this.cameras.main.setBackgroundColor('#ffffff')
 
     this.createTextures()
+    const obstacleSource = this.textures.get('obstacle-png').getSourceImage() as {
+      width?: number
+      height?: number
+    }
+    if (obstacleSource.width && obstacleSource.height && obstacleSource.width > 0) {
+      this.obstacleAspectRatio = obstacleSource.height / obstacleSource.width
+    }
 
     this.roadGraphics = this.add.graphics()
-    this.obstacles = this.add.group()
 
     this.player = this.add.image(0, 0, 'runner-car').setDisplaySize(52, 76)
     this.player.setDepth(10)
@@ -111,6 +156,7 @@ class RunnerScene extends Phaser.Scene {
 
     this.scale.on('resize', this.handleResize, this)
     this.handleResize(this.scale.gameSize)
+    this.publishObstacles()
     this.scene.pause()
   }
 
@@ -148,20 +194,28 @@ class RunnerScene extends Phaser.Scene {
     const playerHitbox = this.getPlayerHitbox()
     const gameHeight = this.scale.height
 
-    this.obstacles.getChildren().forEach((child) => {
-      const obstacle = child as Phaser.GameObjects.Image
-      const lane = obstacle.getData('lane') as number
-      const perspective = Phaser.Math.Clamp((obstacle.y - this.horizonY) / (this.scale.height - this.horizonY), 0, 1)
-      obstacle.y += this.speed * dt * (0.45 + perspective * 1.35)
-      obstacle.x = this.getLaneX(lane, obstacle.y)
-      obstacle.setScale(0.65 + perspective * 0.8)
-
-      if (obstacle.y > gameHeight + 80) {
-        this.obstacles.remove(obstacle, true, true)
+    this.obstacles.forEach((obstacle) => {
+      if (!obstacle.active) {
         return
       }
 
-      if (lane !== playerLane) {
+      const perspective = Phaser.Math.Clamp(
+        (obstacle.y - this.horizonY) / (this.scale.height - this.horizonY),
+        0,
+        1,
+      )
+      obstacle.y += this.speed * dt * (0.45 + perspective * 1.35)
+      obstacle.x = this.getLaneX(obstacle.lane, obstacle.y)
+      const size = this.getObstacleDisplaySize(obstacle.y)
+      obstacle.width = size.width
+      obstacle.height = size.height
+
+      if (obstacle.y > gameHeight + 80) {
+        obstacle.active = false
+        return
+      }
+
+      if (obstacle.lane !== playerLane) {
         return
       }
 
@@ -170,6 +224,8 @@ class RunnerScene extends Phaser.Scene {
         this.handleCrash()
       }
     })
+    this.obstacles = this.obstacles.filter((obstacle) => obstacle.active)
+    this.publishObstacles()
   }
 
   pauseGame() {
@@ -193,7 +249,8 @@ class RunnerScene extends Phaser.Scene {
   }
 
   restartGame() {
-    this.obstacles.clear(true, true)
+    this.obstacles = []
+    this.nextObstacleId = 1
     this.crashed = false
     this.speed = 280
     this.spawnAccumulator = 0
@@ -203,6 +260,7 @@ class RunnerScene extends Phaser.Scene {
     this.snapPlayerToLane()
     this.onScore(0)
     this.drawScene()
+    this.publishObstacles()
     this.scene.resume()
   }
 
@@ -221,13 +279,18 @@ class RunnerScene extends Phaser.Scene {
     }
     const lane = Phaser.Math.Between(0, this.laneCount - 1)
     const spawnY = this.horizonY + Phaser.Math.Between(20, 40)
-    const obstacle = this.add
-      .image(this.getLaneX(lane, spawnY), spawnY, 'runner-pot')
-      .setDisplaySize(72, 72)
-      .setScale(0.72)
-      .setDepth(8)
-    obstacle.setData('lane', lane)
-    this.obstacles.add(obstacle)
+    const x = this.laneCenters[lane]
+    const size = this.getObstacleDisplaySize(spawnY)
+    this.obstacles.push({
+      id: this.nextObstacleId,
+      lane,
+      x,
+      y: spawnY,
+      width: size.width,
+      height: size.height,
+      active: true,
+    })
+    this.nextObstacleId += 1
   }
 
   private changeLane(nextLane: number) {
@@ -534,11 +597,43 @@ class RunnerScene extends Phaser.Scene {
     return new Phaser.Geom.Rectangle(this.player.x - 11, this.player.y - 17, 22, 32)
   }
 
-  private getObstacleHitbox(obstacle: Phaser.GameObjects.Image) {
-    const scale = obstacle.scaleX
-    const width = 18 * scale
-    const height = 14 * scale
-    return new Phaser.Geom.Rectangle(obstacle.x - width / 2, obstacle.y - height / 2 + 3 * scale, width, height)
+  private getObstacleHitbox(obstacle: RunnerObstacle) {
+    const width = obstacle.width * 0.8
+    const height = obstacle.height * 0.8
+    const yOffset = obstacle.height * 0.06
+    return new Phaser.Geom.Rectangle(
+      obstacle.x - width / 2,
+      obstacle.y - height / 2 + yOffset,
+      width,
+      height,
+    )
+  }
+
+  private getObstacleDisplaySize(y: number) {
+    const roadWidth = this.getRoadRightAt(y) - this.getRoadLeftAt(y)
+    const laneWidth = roadWidth / this.laneCount
+    let width = Math.min(laneWidth * 0.92, 170)
+    let height = width * this.obstacleAspectRatio
+    if (height > 90) {
+      const clampScale = 90 / height
+      height = 90
+      width *= clampScale
+    }
+    return { width: width * 1.5 * 1.3, height: height * 1.5 * 1.3 }
+  }
+
+  private publishObstacles() {
+    this.onObstacles(
+      this.obstacles
+        .filter((obstacle) => obstacle.active)
+        .map((obstacle) => ({
+          id: obstacle.id,
+          x: obstacle.x,
+          y: obstacle.y,
+          width: obstacle.width,
+          height: obstacle.height,
+        })),
+    )
   }
 
   private createTextures() {
@@ -610,6 +705,7 @@ function App() {
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>(null)
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
+  const [obstacles, setObstacles] = useState<ObstacleOverlayState[]>([])
 
   const updateLeaderboard = useCallback(async (finalScore: number) => {
     if (finalScore <= 0) {
@@ -703,6 +799,7 @@ function App() {
         setMenuOpen(true)
         void updateLeaderboard(finalScore)
       },
+      (nextObstacles) => setObstacles(nextObstacles),
     )
     sceneRef.current = scene
 
@@ -726,6 +823,7 @@ function App() {
       sceneRef.current = null
       gameRef.current?.destroy(true)
       gameRef.current = null
+      setObstacles([])
     }
   }, [updateLeaderboard])
 
@@ -797,6 +895,21 @@ function App() {
   return (
     <main className="app-shell" onPointerDown={handlePointerStart}>
       <div ref={gameContainerRef} className="game-canvas" />
+      <div className="obstacle-overlay" aria-hidden="true">
+        {obstacles.map((obstacle) => (
+          <img
+            key={obstacle.id}
+            src="/obstacle.png"
+            alt=""
+            className="obstacle-overlay-item"
+            style={{
+              width: `${(obstacle.width / GAME_WIDTH) * 100}vw`,
+              height: `${(obstacle.height / GAME_HEIGHT) * 100}vh`,
+              transform: `translate(-50%, -50%) translate(${(obstacle.x / GAME_WIDTH) * 100}vw, ${(obstacle.y / GAME_HEIGHT) * 100}vh)`,
+            }}
+          />
+        ))}
+      </div>
 
       <section className="hud leaderboard">
         <h2>TOP 3</h2>
@@ -879,10 +992,8 @@ function App() {
               <>
                 <h1>Projects</h1>
                 <p>
-                  We&apos;ve worked with fashion and lifestyle brands such as Nude Project, Brownie,
-                  Multiópticas, Motel Rocks, Lady Pipa, Rotate, and many more. We&apos;ve also
-                  collaborated with artists like Besmaya and Mainline, and agencies including
-                  Polarity Services and Fabra Comunicación, across a wide range of projects.
+                  We&apos;ve worked with fashion and lifestyle brands, collaborated with artists, and
+                  partnered with agencies across a wide range of projects.
                 </p>
                 <p>
                   Clients and collaborators: Arpias, Bar Bocara, Bellenuit, Besmaya, Breathdeep,
@@ -897,6 +1008,32 @@ function App() {
                     Instagram
                   </a>
                 </p>
+                <h2>Selected projects</h2>
+                <div className="projects-grid">
+                  {PROJECT_ITEMS.map((project) => (
+                    <a
+                      key={project.href}
+                      href={project.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="project-tile"
+                    >
+                      {project.type === 'video' ? (
+                        <video
+                          src={project.src}
+                          className="project-media"
+                          autoPlay
+                          muted
+                          loop
+                          playsInline
+                          preload="metadata"
+                        />
+                      ) : (
+                        <img src={project.src} alt="" className="project-media" />
+                      )}
+                    </a>
+                  ))}
+                </div>
               </>
             ) : null}
 
@@ -919,7 +1056,7 @@ function App() {
       {!hasStarted ? (
         <section className="start-overlay" aria-live="polite">
           <div className="start-card">
-            <h1>LA OLLA RACING TEAM</h1>
+            <h1>Gana y te invitamos a un kebap de Kevabrö</h1>
             <p>
               {isTouchDevice
                 ? 'Tap the screen to start playing'
