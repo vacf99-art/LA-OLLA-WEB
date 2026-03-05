@@ -599,8 +599,8 @@ class RunnerScene extends Phaser.Scene {
   }
 
   private getObstacleHitbox(obstacle: RunnerObstacle) {
-    const width = obstacle.width * 0.8
-    const height = obstacle.height * 0.8
+    const width = obstacle.width * 0.72
+    const height = obstacle.height * 0.72
     const yOffset = obstacle.height * 0.06
     return new Phaser.Geom.Rectangle(
       obstacle.x - width / 2,
