@@ -1,4 +1,5 @@
 ﻿import Phaser from 'phaser'
+import { Analytics } from "@vercel/analytics/react";
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
 import './App.css'
 
@@ -1067,7 +1068,7 @@ function App() {
           </div>
         </section>
       ) : null}
-
+     <Analytics />
     </main>
   )
 }
