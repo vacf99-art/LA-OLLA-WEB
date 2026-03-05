@@ -1056,7 +1056,7 @@ function App() {
       {!hasStarted ? (
         <section className="start-overlay" aria-live="polite">
           <div className="start-card">
-            <h1>Gana y te invitamos a un kebap de Kevabrö</h1>
+            <h1>Gana y llévate un durum de Kevabrö</h1>
             <p>
               {isTouchDevice
                 ? 'Tap the screen to start playing'
