@@ -972,19 +972,43 @@ function App() {
               <>
                 <h1>About</h1>
                 <p>
-                  La Olla Studio is a Barcelona based digital content studio. We create visuals that
-                  range from 3D animation and CGI to AI assisted video and organic edits built from
-                  existing footage.
+                  La Olla Studio is a Barcelona-based digital content studio creating social-first visuals
+                  for brands, artists and agencies.
                 </p>
                 <p>
-                  We work with lifestyle brands, artists, and other studios, adapting to whatever
-                  the project needs. Sometimes that means quick, social first enhancements. Other
-                  times it&apos;s fully crafted hero content for key brand moments, launches, and
-                  events.
+                  Some projects call for fast, reactive content built for social. Others need more
+                  crafted visuals for launches, campaigns or key brand moments. We move between
+                  both, creating content that feels current, clear and on brand.
                 </p>
                 <p>
-                  From concept to final delivery, we focus on making ideas feel sharp,
-                  contemporary, and unmistakably on brand.
+                  From concept to final delivery, we focus on making ideas feel sharp, relevant and
+                  easy to connect with.
+                </p>
+                <h2>Creative Direction</h2>
+                <p>
+                  We help define the idea, visual approach and overall feel of a project, making
+                  sure the content is clear, strong and on brand.
+                </p>
+                <h2>Organic Content Production</h2>
+                <p>
+                  We create natural, platform-ready content for social media, from
+                  behind-the-scenes coverage and support content on larger shoots to fully led
+                  vertical productions for Instagram and TikTok.
+                </p>
+                <h2>Editing</h2>
+                <p>
+                  We turn footage into clear, engaging and well-paced content designed to work
+                  across social platforms.
+                </p>
+                <h2>CGI &amp; 3D Animation</h2>
+                <p>
+                  We create 3D visuals and animations that help brands present products, ideas and
+                  campaigns in a more striking and memorable way.
+                </p>
+                <h2>AI Video &amp; Visuals</h2>
+                <p>
+                  We use AI as a creative tool to produce original and visually strong content for
+                  social media, campaigns and digital projects.
                 </p>
               </>
             ) : null}
