@@ -1,6 +1,6 @@
 ﻿import Phaser from 'phaser'
 import { Analytics } from "@vercel/analytics/react";
-import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
+import { createElement, useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
 import './App.css'
 
 type LeaderboardEntry = {
@@ -31,14 +31,279 @@ const LEADERBOARD_ENDPOINT = '/api/leaderboard'
 const SUBMIT_SCORE_ENDPOINT = '/api/submit'
 const GAME_WIDTH = 320
 const GAME_HEIGHT = 568
-const PROJECT_ITEMS = [
-  { href: 'https://www.instagram.com/p/DSkDZ8sjEf7/', src: '/ig/1.mp4', type: 'video' as const },
-  { href: 'https://www.instagram.com/p/DR2H6MrjIvp/', src: '/ig/2.png', type: 'image' as const },
-  { href: 'https://www.instagram.com/p/DTuuWWYDFmv/', src: '/ig/3.mp4', type: 'video' as const },
-  { href: 'https://www.instagram.com/p/DRr2ijTDOjJ/', src: '/ig/4.mp4', type: 'video' as const },
-  { href: 'https://www.instagram.com/p/DSPQSRaDP5G/', src: '/ig/5.mp4', type: 'video' as const },
-  { href: 'https://www.instagram.com/p/DSCULJ6DP8O/', src: '/ig/6.mp4', type: 'video' as const },
+type ProjectItem = {
+  src: string
+  type: 'video' | 'image'
+}
+
+const PROJECT_ITEMS: ProjectItem[] = [
+  { src: '/ig/1.mp4', type: 'video' },
+  { src: '/ig/3.mp4', type: 'video' },
+  { src: '/ig/4.mp4', type: 'video' },
+  { src: '/ig/5.mp4', type: 'video' },
+  { src: '/ig/6.mp4', type: 'video' },
+  { src: '/ig/7.png', type: 'image' },
+  { src: '/ig/8.mp4', type: 'video' },
+  { src: '/ig/9.mp4', type: 'video' },
+  { src: '/ig/10.mp4', type: 'video' },
+  { src: '/ig/11.mp4', type: 'video' },
+  { src: '/ig/12.mp4', type: 'video' },
+  { src: '/ig/13.mp4', type: 'video' },
+  { src: '/ig/14.mp4', type: 'video' },
+  { src: '/ig/15.mp4', type: 'video' },
 ]
+
+const lerp = (from: number, to: number, amount: number) => from + (to - from) * amount
+
+function ProjectMediaTile({ item, measureTrack }: { item: ProjectItem; measureTrack: () => void }) {
+  const [isReady, setIsReady] = useState(item.type === 'image')
+  const [hasError, setHasError] = useState(false)
+
+  const handleVideoLoaded = () => {
+    setIsReady(true)
+    measureTrack()
+  }
+
+  const handleVideoError = () => {
+    console.error(`Failed to load project media: ${item.src}`)
+    setHasError(true)
+    setIsReady(true)
+    measureTrack()
+  }
+
+  return (
+    <a
+      className="marquee-item"
+      href="https://www.instagram.com/laolla.studio/"
+      target="_blank"
+      rel="noreferrer"
+    >
+      <div className="marquee-media-shell">
+        {!isReady ? <div className="marquee-placeholder" aria-hidden="true" /> : null}
+        {item.type === 'image' ? (
+          hasError ? (
+            <div className="marquee-fallback">
+              <span>Open</span>
+            </div>
+          ) : (
+          <img
+            className="marquee-image"
+            src={item.src}
+            alt=""
+            loading="lazy"
+            onLoad={measureTrack}
+            onError={() => {
+              console.error(`Failed to load project media: ${item.src}`)
+              setHasError(true)
+              measureTrack()
+            }}
+          />
+          )
+        ) : hasError ? (
+          <div className="marquee-fallback">
+            <span>Open</span>
+          </div>
+        ) : (
+          <video
+            className={`marquee-video${isReady ? ' is-ready' : ''}`}
+            src={item.src}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            onLoadedData={handleVideoLoaded}
+            onLoadedMetadata={measureTrack}
+            onError={handleVideoError}
+          />
+        )}
+        {hasError ? (
+          <div className="marquee-fallback marquee-fallback-overlay">
+            <span>Open</span>
+          </div>
+        ) : null}
+      </div>
+    </a>
+  )
+}
+
+function ProjectsMarquee() {
+  const trackRef = useRef<HTMLDivElement | null>(null)
+  const baseSpeedRef = useRef(60)
+  const velocityRef = useRef(-baseSpeedRef.current)
+  const offsetRef = useRef(0)
+  const frameRef = useRef<number | null>(null)
+  const halfWidthRef = useRef(0)
+  const lastFrameTimeRef = useRef<number | null>(null)
+  const draggingRef = useRef(false)
+  const startXRef = useRef(0)
+  const startYRef = useRef(0)
+  const lastXRef = useRef(0)
+  const lastTRef = useRef(0)
+  const dragAxisLockedRef = useRef<'horizontal' | 'vertical' | null>(null)
+  const duplicatedItems = PROJECT_ITEMS.concat(PROJECT_ITEMS)
+
+  const applyTransform = useCallback(() => {
+    if (!trackRef.current) {
+      return
+    }
+    trackRef.current.style.transform = `translate3d(${offsetRef.current}px, 0, 0)`
+  }, [])
+
+  const normalizeOffset = useCallback(() => {
+    const halfWidth = halfWidthRef.current
+    if (halfWidth <= 0) {
+      return
+    }
+
+    while (offsetRef.current <= -halfWidth) {
+      offsetRef.current += halfWidth
+    }
+
+    while (offsetRef.current > 0) {
+      offsetRef.current -= halfWidth
+    }
+  }, [])
+
+  const measureTrack = useCallback(() => {
+    if (!trackRef.current) {
+      return
+    }
+
+    halfWidthRef.current = trackRef.current.scrollWidth / 2
+    normalizeOffset()
+    applyTransform()
+  }, [applyTransform, normalizeOffset])
+
+  useEffect(() => {
+    measureTrack()
+
+    if (typeof ResizeObserver === 'undefined' || !trackRef.current) {
+      const handleResize = () => measureTrack()
+      window.addEventListener('resize', handleResize)
+      return () => window.removeEventListener('resize', handleResize)
+    }
+
+    const observer = new ResizeObserver(() => {
+      measureTrack()
+    })
+    observer.observe(trackRef.current)
+
+    return () => observer.disconnect()
+  }, [measureTrack])
+
+  useEffect(() => {
+    const animate = (time: number) => {
+      if (lastFrameTimeRef.current === null) {
+        lastFrameTimeRef.current = time
+        frameRef.current = window.requestAnimationFrame(animate)
+        return
+      }
+
+      const dt = Math.min((time - lastFrameTimeRef.current) / 1000, 0.05)
+      lastFrameTimeRef.current = time
+
+      if (!draggingRef.current) {
+        velocityRef.current = lerp(velocityRef.current, -baseSpeedRef.current, 0.06)
+      }
+      offsetRef.current += velocityRef.current * dt
+      normalizeOffset()
+      applyTransform()
+
+      frameRef.current = window.requestAnimationFrame(animate)
+    }
+
+    frameRef.current = window.requestAnimationFrame(animate)
+
+    return () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current)
+      }
+      frameRef.current = null
+      lastFrameTimeRef.current = null
+    }
+  }, [applyTransform, normalizeOffset])
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    draggingRef.current = true
+    dragAxisLockedRef.current = null
+    startXRef.current = event.clientX
+    startYRef.current = event.clientY
+    lastXRef.current = event.clientX
+    lastTRef.current = performance.now()
+
+    if (event.currentTarget.setPointerCapture) {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+  }
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) {
+      return
+    }
+
+    const now = performance.now()
+    const dx = event.clientX - lastXRef.current
+    const dt = now - lastTRef.current
+
+    if (dragAxisLockedRef.current === null) {
+      const absDx = Math.abs(event.clientX - startXRef.current)
+      const absDy = Math.abs(event.clientY - startYRef.current)
+      if (absDx > 6 || absDy > 6) {
+        dragAxisLockedRef.current = absDx >= absDy ? 'horizontal' : 'vertical'
+      }
+    }
+
+    if (dragAxisLockedRef.current === 'horizontal') {
+      event.preventDefault()
+      offsetRef.current += dx
+      normalizeOffset()
+      applyTransform()
+      const pointerVelocity = Phaser.Math.Clamp(dx / Math.max(dt / 1000, 0.001), -900, 900)
+      velocityRef.current = lerp(velocityRef.current, pointerVelocity, 0.35)
+    }
+
+    lastXRef.current = event.clientX
+    lastTRef.current = now
+  }
+
+  const endDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) {
+      return
+    }
+
+    draggingRef.current = false
+    dragAxisLockedRef.current = null
+
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      draggingRef.current = false
+    }
+  }, [])
+
+  return (
+    <div className="marquee">
+      <div
+        ref={trackRef}
+        className="marquee-track"
+        style={{ transform: 'translate3d(0, 0, 0)' }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
+        {duplicatedItems.map((item, index) => (
+          <ProjectMediaTile key={`${item.src}-${index}`} item={item} measureTrack={measureTrack} />
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const normalizeLeaderboard = (entries: unknown): LeaderboardEntry[] => {
   if (!Array.isArray(entries)) {
@@ -707,6 +972,7 @@ function App() {
   const [activeScreen, setActiveScreen] = useState<ActiveScreen>(null)
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [obstacles, setObstacles] = useState<ObstacleOverlayState[]>([])
+  const [aboutViewerDragging, setAboutViewerDragging] = useState(false)
 
   const updateLeaderboard = useCallback(async (finalScore: number) => {
     if (finalScore <= 0) {
@@ -874,6 +1140,14 @@ function App() {
     setActiveScreen(null)
   }
 
+  const handleAboutViewerPointerDown = () => {
+    setAboutViewerDragging(true)
+  }
+
+  const handleAboutViewerPointerUp = () => {
+    setAboutViewerDragging(false)
+  }
+
   const closeMenu = () => {
     if (gameOver || activeScreen) {
       return
@@ -972,44 +1246,29 @@ function App() {
               <>
                 <h1>About</h1>
                 <p>
-                  La Olla Studio is a Barcelona-based digital content studio creating social-first visuals
-                  for brands, artists and agencies.
+                  La Olla Studio is a Barcelona-based digital content studio.
                 </p>
                 <p>
-                  Some projects call for fast, reactive content built for social. Others need more
-                  crafted visuals for launches, campaigns or key brand moments. We move between
-                  both, creating content that feels current, clear and on brand.
+                  We help brands translate ideas into content people actually want to watch. Always
+                  clear, always contemporary, always made to stand out.
                 </p>
-                <p>
-                  From concept to final delivery, we focus on making ideas feel sharp, relevant and
-                  easy to connect with.
-                </p>
-                <h2>Creative Direction</h2>
-                <p>
-                  We help define the idea, visual approach and overall feel of a project, making
-                  sure the content is clear, strong and on brand.
-                </p>
-                <h2>Organic Content Production</h2>
-                <p>
-                  We create natural, platform-ready content for social media, from
-                  behind-the-scenes coverage and support content on larger shoots to fully led
-                  vertical productions for Instagram and TikTok.
-                </p>
-                <h2>Editing</h2>
-                <p>
-                  We turn footage into clear, engaging and well-paced content designed to work
-                  across social platforms.
-                </p>
-                <h2>CGI &amp; 3D Animation</h2>
-                <p>
-                  We create 3D visuals and animations that help brands present products, ideas and
-                  campaigns in a more striking and memorable way.
-                </p>
-                <h2>AI Video &amp; Visuals</h2>
-                <p>
-                  We use AI as a creative tool to produce original and visually strong content for
-                  social media, campaigns and digital projects.
-                </p>
+                <div className="about-viewer-wrap">
+                  {createElement('model-viewer', {
+                    class: 'about-viewer',
+                    src: '/3d/model.glb',
+                    alt: 'La Olla Studio 3D model',
+                    'camera-controls': true,
+                    'auto-rotate': !aboutViewerDragging,
+                    'auto-rotate-delay': '1000',
+                    'rotation-per-second': '24deg',
+                    'interaction-prompt': 'none',
+                    'disable-zoom': true,
+                    onPointerDown: handleAboutViewerPointerDown,
+                    onPointerUp: handleAboutViewerPointerUp,
+                    onPointerCancel: handleAboutViewerPointerUp,
+                    onPointerLeave: handleAboutViewerPointerUp,
+                  })}
+                </div>
               </>
             ) : null}
 
@@ -1020,12 +1279,16 @@ function App() {
                   We&apos;ve worked with fashion and lifestyle brands, collaborated with artists, and
                   partnered with agencies across a wide range of projects.
                 </p>
+                <ProjectsMarquee />
                 <p>
-                  Clients and collaborators: Arpias, Bar Bocara, Bellenuit, Besmaya, Breathdeep,
-                  Brownie, Coches by Carla, Dropset, Fabra Comunicación, Facegloss, GN0, Good News,
-                  Jabba, Kilite, La Vall, Lady Pipa, Maen Studio, Mainline, MIM, Motel Rocks, Multi
-                  Ópticas, Nude Project, Ouineta, Outer Gin, Polarity Services, Rotate, Sita
-                  Nevado, Susmie&apos;s, TéPone.
+                  <strong>Clients and collaborators</strong>
+                </p>
+                <p>
+                  Arpias, Bar Bocata, Bellenuit, Besmaya, Breathdeep, Brownie, Coches by Carla,
+                  Dropset, Fabra Comunicación, Facegloss, GN0, Good News, Jabba, Kilite, La Vall,
+                  Lady Pipa, Maen Studio, Mainline, MIM, Motel Rocks, Multi Ópticas, Nude Project,
+                  Ouineta, Outer Gin, Polarity Services, Rotate, Sita Nevado, Susmie&apos;s,
+                  TéPone.
                 </p>
                 <p>
                   See all of our projects on{' '}
@@ -1033,43 +1296,17 @@ function App() {
                     Instagram
                   </a>
                 </p>
-                <h2>Selected projects</h2>
-                <div className="projects-grid">
-                  {PROJECT_ITEMS.map((project) => (
-                    <a
-                      key={project.href}
-                      href={project.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="project-tile"
-                    >
-                      {project.type === 'video' ? (
-                        <video
-                          src={project.src}
-                          className="project-media"
-                          autoPlay
-                          muted
-                          loop
-                          playsInline
-                          preload="metadata"
-                        />
-                      ) : (
-                        <img src={project.src} alt="" className="project-media" />
-                      )}
-                    </a>
-                  ))}
-                </div>
               </>
             ) : null}
 
             {activeScreen === 'contact' ? (
               <>
                 <h1>Contact</h1>
-                <p>Email: vacf99@gmail.com</p>
+                <p>Email: hello@laollastudio.com</p>
                 <p>
                   Instagram:{' '}
                   <a href="https://www.instagram.com/laolla.studio/" target="_blank" rel="noreferrer">
-                    https://www.instagram.com/laolla.studio/
+                    Instagram
                   </a>
                 </p>
               </>
