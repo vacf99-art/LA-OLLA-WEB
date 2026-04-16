@@ -54,8 +54,21 @@ const PROJECT_ITEMS: ProjectItem[] = [
 ]
 
 const lerp = (from: number, to: number, amount: number) => from + (to - from) * amount
+const PROJECT_ACTIVE_TILE_COUNT = 3
+const PROJECT_ACTIVE_DISTANCE_MULTIPLIER = 1.2
+const PROJECT_PLAYBACK_CHECK_INTERVAL = 200
 
-function ProjectMediaTile({ item, measureTrack }: { item: ProjectItem; measureTrack: () => void }) {
+function ProjectMediaTile({
+  item,
+  measureTrack,
+  tileRef,
+  videoRef,
+}: {
+  item: ProjectItem
+  measureTrack: () => void
+  tileRef?: (element: HTMLAnchorElement | null) => void
+  videoRef?: (element: HTMLVideoElement | null) => void
+}) {
   const [isReady, setIsReady] = useState(item.type === 'image')
   const [hasError, setHasError] = useState(false)
 
@@ -77,6 +90,7 @@ function ProjectMediaTile({ item, measureTrack }: { item: ProjectItem; measureTr
       href="https://www.instagram.com/laolla.studio/"
       target="_blank"
       rel="noreferrer"
+      ref={tileRef}
     >
       <div className="marquee-media-shell">
         {!isReady ? <div className="marquee-placeholder" aria-hidden="true" /> : null}
@@ -107,11 +121,11 @@ function ProjectMediaTile({ item, measureTrack }: { item: ProjectItem; measureTr
           <video
             className={`marquee-video${isReady ? ' is-ready' : ''}`}
             src={item.src}
-            autoPlay
             muted
             loop
             playsInline
-            preload="metadata"
+            preload="none"
+            ref={videoRef}
             onLoadedData={handleVideoLoaded}
             onLoadedMetadata={measureTrack}
             onError={handleVideoError}
@@ -128,7 +142,12 @@ function ProjectMediaTile({ item, measureTrack }: { item: ProjectItem; measureTr
 }
 
 function ProjectsMarquee() {
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const trackRef = useRef<HTMLDivElement | null>(null)
+  const tileRefs = useRef<(HTMLAnchorElement | null)[]>([])
+  const videoRefs = useRef<(HTMLVideoElement | null)[]>([])
+  const activeVideoIndexesRef = useRef<Set<number>>(new Set())
+  const lastPlaybackCheckRef = useRef(0)
   const baseSpeedRef = useRef(60)
   const velocityRef = useRef(-baseSpeedRef.current)
   const offsetRef = useRef(0)
@@ -142,6 +161,77 @@ function ProjectsMarquee() {
   const lastTRef = useRef(0)
   const dragAxisLockedRef = useRef<'horizontal' | 'vertical' | null>(null)
   const duplicatedItems = PROJECT_ITEMS.concat(PROJECT_ITEMS)
+
+  const syncActiveVideos = useCallback(() => {
+    if (!containerRef.current) {
+      return
+    }
+
+    const viewportCenterX = window.innerWidth / 2
+    const activationThreshold = window.innerWidth * PROJECT_ACTIVE_DISTANCE_MULTIPLIER
+    const rankedTiles = videoRefs.current
+      .map((video, index) => {
+        const tile = tileRefs.current[index]
+        if (!tile || !video) {
+          return null
+        }
+
+        const rect = tile.getBoundingClientRect()
+        const centerX = rect.left + rect.width / 2
+
+        return {
+          distance: Math.abs(centerX - viewportCenterX),
+          index,
+          video,
+        }
+      })
+      .filter((entry): entry is { distance: number; index: number; video: HTMLVideoElement } => entry !== null)
+      .sort((a, b) => a.distance - b.distance)
+
+    const nextActiveIndexes = new Set(
+      rankedTiles
+        .filter((entry) => entry.distance <= activationThreshold)
+        .slice(0, PROJECT_ACTIVE_TILE_COUNT)
+        .map((entry) => entry.index),
+    )
+
+    videoRefs.current.forEach((video, index) => {
+      if (!video) {
+        return
+      }
+
+      const shouldBeActive = nextActiveIndexes.has(index)
+      const wasActive = activeVideoIndexesRef.current.has(index)
+
+      if (shouldBeActive) {
+        if (video.preload !== 'metadata') {
+          video.preload = 'metadata'
+          if (video.readyState === 0) {
+            video.load()
+          }
+        }
+
+        if (!wasActive || video.paused) {
+          void video.play().catch(() => {})
+        }
+        return
+      }
+
+      if (wasActive || !video.paused) {
+        video.pause()
+      }
+
+      if (video.currentTime !== 0) {
+        try {
+          video.currentTime = 0
+        } catch {
+          // Ignore seek failures while metadata is unavailable.
+        }
+      }
+    })
+
+    activeVideoIndexesRef.current = nextActiveIndexes
+  }, [])
 
   const applyTransform = useCallback(() => {
     if (!trackRef.current) {
@@ -177,20 +267,25 @@ function ProjectsMarquee() {
 
   useEffect(() => {
     measureTrack()
+    syncActiveVideos()
 
     if (typeof ResizeObserver === 'undefined' || !trackRef.current) {
-      const handleResize = () => measureTrack()
+      const handleResize = () => {
+        measureTrack()
+        syncActiveVideos()
+      }
       window.addEventListener('resize', handleResize)
       return () => window.removeEventListener('resize', handleResize)
     }
 
     const observer = new ResizeObserver(() => {
       measureTrack()
+      syncActiveVideos()
     })
     observer.observe(trackRef.current)
 
     return () => observer.disconnect()
-  }, [measureTrack])
+  }, [measureTrack, syncActiveVideos])
 
   useEffect(() => {
     const animate = (time: number) => {
@@ -210,6 +305,11 @@ function ProjectsMarquee() {
       normalizeOffset()
       applyTransform()
 
+      if (time - lastPlaybackCheckRef.current >= PROJECT_PLAYBACK_CHECK_INTERVAL) {
+        lastPlaybackCheckRef.current = time
+        syncActiveVideos()
+      }
+
       frameRef.current = window.requestAnimationFrame(animate)
     }
 
@@ -221,8 +321,24 @@ function ProjectsMarquee() {
       }
       frameRef.current = null
       lastFrameTimeRef.current = null
+      activeVideoIndexesRef.current.clear()
+      videoRefs.current.forEach((video) => {
+        if (!video) {
+          return
+        }
+
+        video.pause()
+
+        if (video.currentTime !== 0) {
+          try {
+            video.currentTime = 0
+          } catch {
+            // Ignore seek failures while metadata is unavailable.
+          }
+        }
+      })
     }
-  }, [applyTransform, normalizeOffset])
+  }, [applyTransform, normalizeOffset, syncActiveVideos])
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     draggingRef.current = true
@@ -287,7 +403,7 @@ function ProjectsMarquee() {
   }, [])
 
   return (
-    <div className="marquee">
+    <div ref={containerRef} className="marquee">
       <div
         ref={trackRef}
         className="marquee-track"
@@ -298,7 +414,17 @@ function ProjectsMarquee() {
         onPointerCancel={endDrag}
       >
         {duplicatedItems.map((item, index) => (
-          <ProjectMediaTile key={`${item.src}-${index}`} item={item} measureTrack={measureTrack} />
+          <ProjectMediaTile
+            key={`${item.src}-${index}`}
+            item={item}
+            measureTrack={measureTrack}
+            tileRef={(element) => {
+              tileRefs.current[index] = element
+            }}
+            videoRef={(element) => {
+              videoRefs.current[index] = element
+            }}
+          />
         ))}
       </div>
     </div>
@@ -963,6 +1089,7 @@ function App() {
   const gameContainerRef = useRef<HTMLDivElement | null>(null)
   const gameRef = useRef<Phaser.Game | null>(null)
   const sceneRef = useRef<RunnerScene | null>(null)
+  const copyFeedbackTimeoutRef = useRef<number | null>(null)
 
   const [score, setScore] = useState(0)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -973,6 +1100,7 @@ function App() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const [obstacles, setObstacles] = useState<ObstacleOverlayState[]>([])
   const [aboutViewerDragging, setAboutViewerDragging] = useState(false)
+  const [contactCopied, setContactCopied] = useState(false)
 
   const updateLeaderboard = useCallback(async (finalScore: number) => {
     if (finalScore <= 0) {
@@ -1043,6 +1171,14 @@ function App() {
         window.matchMedia('(pointer: coarse)').matches ||
         'ontouchstart' in window)
     setIsTouchDevice(touchCapable)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (copyFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(copyFeedbackTimeoutRef.current)
+      }
+    }
   }, [])
 
   const startRun = useCallback(() => {
@@ -1137,7 +1273,28 @@ function App() {
   }
 
   const goBackFromScreen = () => {
+    setContactCopied(false)
     setActiveScreen(null)
+  }
+
+  const handleContactCopy = async () => {
+    const email = 'hello@laollastudio.com'
+
+    try {
+      await navigator.clipboard.writeText(email)
+      setContactCopied(true)
+
+      if (copyFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(copyFeedbackTimeoutRef.current)
+      }
+
+      copyFeedbackTimeoutRef.current = window.setTimeout(() => {
+        setContactCopied(false)
+        copyFeedbackTimeoutRef.current = null
+      }, 1200)
+    } catch {
+      window.prompt('Copy this email:', email)
+    }
   }
 
   const handleAboutViewerPointerDown = () => {
@@ -1302,13 +1459,24 @@ function App() {
             {activeScreen === 'contact' ? (
               <>
                 <h1>Contact</h1>
-                <p>Email: hello@laollastudio.com</p>
-                <p>
-                  Instagram:{' '}
-                  <a href="https://www.instagram.com/laolla.studio/" target="_blank" rel="noreferrer">
-                    Instagram
+                <div className="contact-actions">
+                  <a
+                    className="contact-image-button"
+                    href="https://www.instagram.com/laolla.studio/"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <img src="/insta.png" alt="Instagram" />
                   </a>
-                </p>
+                  <button
+                    type="button"
+                    className="contact-image-button contact-mail"
+                    onClick={handleContactCopy}
+                  >
+                    <img src="/mail.png" alt="Copy email address" />
+                  </button>
+                </div>
+                {contactCopied ? <p className="contact-copy-feedback">Copied</p> : null}
               </>
             ) : null}
           </article>

@@ -329,6 +329,49 @@ a:hover {
   text-decoration: none;
 }
 
+.contact-actions {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.contact-image-button {
+  display: block;
+  width: min(100%, 260px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  box-shadow: none;
+  outline: none;
+  transition: transform 0.16s ease;
+}
+
+.contact-image-button img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.contact-image-button:hover {
+  transform: translateY(-2px);
+}
+
+.contact-mail,
+.contact-mail:focus,
+.contact-mail:focus-visible {
+  border: 0;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+}
+
+.contact-copy-feedback {
+  text-align: center;
+  font-size: 14px;
+}
+
 .screen-back {
   position: sticky;
   top: 0;
